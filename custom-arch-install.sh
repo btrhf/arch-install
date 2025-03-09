@@ -254,14 +254,13 @@ echo "$hostname" > /etc/hostname
 
 echo "Set the root password:"
 passwd
-"$rootpw"
-"$rootpw"
+$rootpw
+$rootpw
 
 useradd -m -G wheel -s /bin/bash "$username"
 echo "Set the password for $username:"
 passwd "$username"
-"$userpw"
-"$userpw"
+$userpw
 EOT
 
 ##################################
