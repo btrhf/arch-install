@@ -205,8 +205,14 @@ sudo genfstab -U /mnt >> /mnt/etc/fstab
 echo "Enter a hostname for this machine:"
 read hostname
 
+echo "Enter root password:"
+read root-pw
+
 echo "Enter a username for your account:"
 read username
+
+echo "Enter password for your account:"
+read user-pw
 
 echo "Available Regions:"
 ls /usr/share/zoneinfo/
@@ -248,10 +254,14 @@ echo "$hostname" > /etc/hostname
 
 echo "Set the root password:"
 passwd
+"$root-pw"
+"$root-pw"
 
 useradd -m -G wheel -s /bin/bash "$username"
 echo "Set the password for $username:"
 passwd "$username"
+"$user-pw"
+"$user-pw"
 EOT
 
 ##################################
