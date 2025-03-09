@@ -46,7 +46,7 @@ if [[ "$partition_choice" == "1" ]]; then               # If the choice is 1 (Re
     echo "Creating 1GiB EFI Boot partition..."
     sudo gdisk $disk <<EOF
 n
-1
+
 
 +1G
 ef00
@@ -84,7 +84,7 @@ EOF
         echo "Creating Swap partition of size $swap_size..."
         sudo gdisk $disk <<EOF
 n
-2
+
 
 +$swap_size
 8200
@@ -101,14 +101,14 @@ EOF
         echo "Creating 80GiB Root partition and allocating ALL remaining space to /home..."
         sudo gdisk $disk <<EOF
 n
-3
+
 
 +80G
 8300
 n
-4
 
-   # Leave size blank to allocate all remaining space
+
+
 8300
 w
 Y
@@ -119,9 +119,9 @@ EOF
         echo "Using remaining space for Root (/)."
         sudo gdisk $disk <<EOF
 n
-3
 
-   # No size specified takes all remaining space
+
+
 8300
 w
 Y
@@ -224,23 +224,18 @@ echo "Chrooting into the new system..."
 arch-chroot /mnt /bin/bash <<EOT
 echo "Setting up system..."
 
-# Set locale immediately
 echo "LANG=$lang_choice" > /etc/locale.conf
 echo "$lang_choice UTF-8" >> /etc/locale.gen
 locale-gen
 
-# Set timezone using selected region and city
 ln -sf /usr/share/zoneinfo/$region/$city /etc/localtime
 hwclock --systohc
 
-# Set hostname
 echo "$hostname" > /etc/hostname
 
-# Set root password (prompt appears here)
 echo "Set the root password:"
 passwd
 
-# Create custom user and set their password
 useradd -m -G wheel -s /bin/bash "$username"
 echo "Set the password for $username:"
 passwd "$username"
