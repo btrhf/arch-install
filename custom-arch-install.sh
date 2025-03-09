@@ -113,7 +113,7 @@ n
 w
 Y
 EOF
-        if [["$swap_choice" == "y"]]; then    
+        if [[ "$swap_choice" == "y" ]]; then    
             root_partition="${disk}3"
             home_partition="${disk}4"
         else
@@ -131,7 +131,7 @@ n
 w
 Y
 EOF
-        if [["$swap_choice" == "y"]]; then    
+        if [[ "$swap_choice" == "y" ]]; then    
             root_partition="${disk}3"
         else
             root_partition="${disk}2"
