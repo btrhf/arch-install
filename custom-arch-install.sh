@@ -113,8 +113,12 @@ n
 w
 Y
 EOF
-        root_partition="${disk}3"
-        home_partition="${disk}4"
+        if [["swap_choice" == "y"]]; then    
+            root_partition="${disk}3"
+            home_partition="${disk}4"
+        else
+            root_partition="${disk}2"
+            home_partition="${disk}3"
     else
         echo "Using remaining space for Root (/)."
         sudo gdisk $disk <<EOF
@@ -126,7 +130,10 @@ n
 w
 Y
 EOF
-        root_partition="${disk}3"
+        if [["swap_choice" == "y"]]; then    
+            root_partition="${disk}3"
+        else
+            root_partition="${disk}2"
     fi
 
 elif [[ "$partition_choice" == "2" ]]; then             # If the choice is 2 (Manual).
