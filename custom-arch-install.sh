@@ -206,13 +206,13 @@ echo "Enter a hostname for this machine:"
 read hostname
 
 echo "Enter root password:"
-read root-pw
+read rootpw
 
 echo "Enter a username for your account:"
 read username
 
 echo "Enter password for your account:"
-read user-pw
+read userpw
 
 echo "Available Regions:"
 ls /usr/share/zoneinfo/
