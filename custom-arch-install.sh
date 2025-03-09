@@ -119,6 +119,7 @@ EOF
         else
             root_partition="${disk}2"
             home_partition="${disk}3"
+        fi
     else
         echo "Using remaining space for Root (/)."
         sudo gdisk $disk <<EOF
@@ -134,6 +135,7 @@ EOF
             root_partition="${disk}3"
         else
             root_partition="${disk}2"
+        fi
     fi
 
 elif [[ "$partition_choice" == "2" ]]; then             # If the choice is 2 (Manual).
