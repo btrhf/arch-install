@@ -1,9 +1,8 @@
+#!/bin/bash
+
 # v0.0.5
 # ToDO : Make home partition 
 
-
-
-#!/bin/bash
 
 create_root_partition() {
 
@@ -41,6 +40,7 @@ create_root_partition() {
             ROOT_SIZE="$(( FREE_SIZE / 1024 ))G"
             ROOT_END="${ROOT_END}M"
             break
+        fi
     done
 
     echo "Creating Root Partition of size $ROOT_SIZE"
