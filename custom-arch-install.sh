@@ -1,278 +1,279 @@
+# v0.0.5
+# ToDO : Make home partition 
+
+
+
 #!/bin/bash
-set -x
 
-##############################
-# Step 1: Disk Selection     #
-##############################
+create_root_partition() {
 
-# Display current disk struture.
-echo "Available Disks:"
-lsblk -o NAME,SIZE,TYPE,MOUNTPOINT
+    echo "Creating root partition..."
+    while true; do
+        if [[ "$SEPARATE_HOME_PARTITION" == "y" ]]; then
+            ROOT_SIZE="120G"
+            read -rp "Please enter the size for your root partition. (default: 120G)" ROOT_RESPONSE
 
-# Request the partition/drive name to be used for the install.
-echo "Enter the drive to install Arch on (e.g., /dev/sda, /dev/nvme0n1):"
-read disk
+            if [[ -n "$ROOT_RESPONSE" ]]; then
 
-# Prompt to zap the drive or not.
-echo "Do you want to completely wipe (zap) $disk? This WILL DELETE ALL DATA! (yes/no)"
-read zap_choice
-if [[ "$zap_choice" == "yes" ]]; then   # If the choice is yes.
-    echo "Wiping $disk..."
-    sudo gdisk $disk <<EOF
-x
-z
-Y
-Y
-EOF
-    echo "Disk wiped successfully."
-else                                    # If the choice is no.
-    echo "Skipping disk wipe..."
-fi
+                if [[ "$ROOT_RESPONSE" =~ ^[0-9]+M$ ]]; then
+                    ROOT_SIZE="$ROOT_RESPONSE"
+                    ROOT_END="$ROOT_RESPONSE"                                   # User entered MB, no conversion needed
+                    break
+            
+                elif [[ "$ROOT_RESPONSE" =~ ^[0-9]+G$ ]]; then
+                    ROOT_SIZE="$ROOT_RESPONSE"
+                    ROOT_END="$(( ${ROOT_RESPONSE%G} * 1024 ))M"     # Convert GB to MB
+                    break
 
-#####################################
-# Step 2: Partitioning Selection    #
-#####################################
+                else
+                    echo "Invalid size format! Please enter a number followed by 'M' (MB) or 'G' (GB) (e.g., 512M, 1G)."
+                    sleep 3
+                fi
+   
+            else
+                ROOT_END="$(( ${ROOT_SIZE%G} * 1024 ))M"              # Convert GB to MB
+                break
 
-# Option for desired partitioning methord.
-echo "Choose partitioning method:"
-echo "1) Recommended (Auto-Partition: EFI + Swap + Root/Home based on choice)"  # Automatic good for beginners.
-echo "2) Manual (Launch cgdisk)"                                                # Manual for intermediate to expert users.
-read -p "Enter choice (1 or 2): " partition_choice
+            fi
+        elif [[ "$SEPARATE_HOME_PARTITION" == "n" ]]; then
+            ROOT_END=$(parted "$DISK" unit MiB print free | awk '/Free Space/ {e=$2} END {gsub("MiB","",e); print e}')
+            FREE_SIZE=$(parted "$DISK" unit MiB print free | awk '/Free Space/ {s=$3} END {gsub("MiB","",s); print s}')
+            ROOT_SIZE="$(( FREE_SIZE / 1024 ))G"
+            ROOT_END="${ROOT_END}M"
+            break
+    done
 
-if [[ "$partition_choice" == "1" ]]; then               # If the choice is 1 (Recommended).
-    echo "Setting up recommended partitioning..."
+    echo "Creating Root Partition of size $ROOT_SIZE"
 
-    # Create EFI Boot Partition (1 GiB)
-    echo "Creating 1GiB EFI Boot partition..."
-    sudo gdisk $disk <<EOF
-n
+    # Create ROOT partition using parted
+    parted --script "$DISK" mkpart primary ext4 "$EFI_END" "$ROOT_END"
 
-
-+1G
-ef00
-w
-Y
-EOF
-    efi_partition="${disk}1"
-
-    # Option for Swap Partition
-    echo "Do you want a swap partition? (y/n)"
-    read swap_choice
-    if [[ "$swap_choice" == "y" ]]; then
-        echo "How much RAM do you have? (in GB)"
-        read ram_size
-
-        if (( ram_size <= 2 )); then
-            swap_size="4G"
-        elif (( ram_size <= 8 )); then
-            swap_size="8G"
-        elif (( ram_size <= 16 )); then
-            swap_size="16G"
-        elif (( ram_size <= 32 )); then
-            swap_size="16G"
-        elif (( ram_size <= 48 )); then
-            swap_size="24G"
-        else
-            swap_size="32G"
-        fi
-
-        echo "Recommended swap size: $swap_size"
-        echo "Enter swap size (or press Enter to accept $swap_size):"
-        read user_swap_size
-        swap_size=${user_swap_size:-$swap_size}
-
-        echo "Creating Swap partition of size $swap_size..."
-        sudo gdisk $disk <<EOF
-n
-
-
-+$swap_size
-8200
-w
-Y
-EOF
-        swap_partition="${disk}2"
+    # Determine partition name
+    if [[ $DISK =~ nvme ]]; then
+        ROOT_PARTITION="${DISK}p2"  # NVMe uses p1, p2...
+    
+    else
+        ROOT_PARTITION="${DISK}2"   # Standard disks use 1, 2...
+    
     fi
 
-    # Option for Separate /home Partition
-    echo "Do you want a separate /home partition? (y/n)"
-    read home_choice
-    if [[ "$home_choice" == "y" ]]; then
-        echo "Creating 80GiB Root partition and allocating ALL remaining space to /home..."
-        sudo gdisk $disk <<EOF
-n
+    echo "Root partition created at: $ROOT_PARTITION"
+
+}
+
+# create_root_partition() {
+
+#     read -rp "Do you want to create a separate home partition? (y/n)" SEPARATE_HOME_PARTITION
+#     SEPARATE_HOME_PARTITION=$(echo "$SEPARATE_HOME_PARTITION" | tr '[:upper:]' '[:lower:]')      # Convert to lowercase
+
+#     # Creating Root partition of size 160GiB for maximum support
+#     if [[ SEPARATE_HOME_PARTITION == "y" ]]; then
+#         echo "Creating a root partition..."
 
 
-+80G
-8300
-n
+# }
 
+create_swap_file() {
 
+    RAM_SIZE=$(awk '/MemTotal/ {printf "%.0f", ($2 / 1024 / 1024) + 1}' /proc/meminfo)
 
-8300
-w
-Y
-EOF
+    if [[ "$HIBERNATION_REQUIRED" == "y" ]]; then
+        SWAP_SIZE="${RAM_SIZE}G"
     
-        if [[ "$swap_choice" == "y" ]]; then    
-            root_partition="${disk}3"
-            home_partition="${disk}4"
+    elif [[ "$HIBERNATION_REQUIRED" == "n" ]];  then
+        if (( RAM_SIZE <= "2" )); then
+            SWAP_SIZE="4G"
+        elif (( RAM_SIZE <= "8" )); then
+            SWAP_SIZE="8G"
+        elif (( RAM_SIZE <= "16" )); then
+            SWAP_SIZE="16G"
+        elif (( RAM_SIZE <= "32" )); then
+            SWAP_SIZE="16G"
+        elif (( RAM_SIZE <= "48" )); then
+            SWAP_SIZE="24G"
         else
-            root_partition="${disk}2"
-            home_partition="${disk}3"
+            SWAP_SIZE="32G"
         fi
     
     else
-        echo "Using remaining space for Root (/)."
-        sudo gdisk $disk <<EOF
-n
-
-
-
-8300
-w
-Y
-EOF
-        
-        if [[ "$swap_choice" == "y" ]]; then    
-            root_partition="${disk}3"
-        else
-            root_partition="${disk}2"
-        fi
-        
+        echo "Please enter correct input y or n."
+        sleep 3
+        create_swap_file
+        return
     fi
 
-elif [[ "$partition_choice" == "2" ]]; then             # If the choice is 2 (Manual).
-    echo "Launching cgdisk... Please manually create your partitions."
-    sleep 5
-    sudo cgdisk $disk
+    echo "Creating swap partition of ${SWAP_SIZE%G} GB"
+    
+    fallocate -l $SWAP_SIZE /mnt/swapfile
+    chmod 600 /mnt/swapfile
+    mkswap /mnt/swapfile
+    swapon /mnt/swapfile
 
-    echo "Updated Disk Layout (After Partitioning):"
-    lsblk -o NAME,SIZE,TYPE,MOUNTPOINT
+    echo "/swapfile none swap sw 0 0" | tee -a /mnt/etc/fstab
+}
 
-    echo "Enter the root partition (e.g., /dev/sda2, /dev/nvme0n1p2):"
-    read root_partition
-    echo "Enter the EFI partition (e.g., /dev/sda1, /dev/nvme0n1p1):"
-    read efi_partition
-    echo "Enter the swap partition (optional, press Enter to skip):"
-    read swap_partition
-    echo "Enter the home partition (optional, press Enter to skip):"
-    read home_partition
-fi
+create_efi_partition() {
 
-########################################
-# Step 3: Format and Mount Partitions  #
-########################################
+    local EFI_SIZE="1G"  # Default EFI size is 1G if not provided
+    local EFI_RESPONSE
 
-echo "Formatting partitions..."
-sudo mkfs.ext4 $root_partition
-sudo mkfs.fat -F32 $efi_partition
-if [[ -n "$swap_partition" ]]; then
-    sudo mkswap $swap_partition
-    sudo swapon $swap_partition
-fi
-if [[ -n "$home_partition" ]]; then
-    sudo mkfs.ext4 $home_partition
-fi
 
-echo "Mounting partitions..."
-sudo mount $root_partition /mnt
-sudo mkdir -p /mnt/boot
-sudo mount $efi_partition /mnt/boot
-if [[ -n "$home_partition" ]]; then
-    sudo mkdir -p /mnt/home
-    sudo mount $home_partition /mnt/home
-fi
+    read -rp "Do you wanna set a custom size of EFI Partition? (Default: 1G): " EFI_RESPONSE
+        
+    if [[ -n "$EFI_RESPONSE" ]]; then
 
-echo "Partitions formatted and mounted successfully!"
+        if [[ "$EFI_RESPONSE" =~ ^[0-9]+M$ ]]; then
+            EFI_SIZE="$EFI_RESPONSE"
+            EFI_END="$EFI_RESPONSE"                        # User entered MB, no conversion needed
+        
+        elif [[ "$EFI_RESPONSE" =~ ^[0-9]+G$ ]]; then
+            EFI_SIZE="$EFI_RESPONSE"
+            EFI_END="$(( ${EFI_RESPONSE%G} * 1024 ))M"     # Convert GB to MB
+        
+        else
+            echo "Invalid size format! Please enter a number followed by 'M' (MB) or 'G' (GB) (e.g., 512M, 1G)."
+            sleep 3
+            create_efi_partition
+            return
+        fi
 
-####################################
-# Step 4: Install Base System      #
-####################################
+    else
+        EFI_END="$(( ${EFI_SIZE%G} * 1024 ))M"              # Convert GB to MB
+    
+    fi
 
-echo "Installing base system..."
-sudo pacstrap /mnt base linux linux-firmware grub efibootmgr
+    echo "Creating EFI Partition of size $EFI_SIZE"
 
-echo "Generating fstab..."
-sudo genfstab -U /mnt >> /mnt/etc/fstab
+    # Create EFI partition using parted
+    sudo parted --script "$DISK" mklabel gpt
+    sudo parted --script "$DISK" mkpart ESP fat32 1MiB "$EFI_END"
+    sudo parted --script "$DISK" set 1 esp on
 
-##########################################################
-# Step 5: Collect User Inputs for System Configuration   #
-##########################################################
+    # Determine partition name
+    if [[ $DISK =~ nvme ]]; then
+        EFI_PARTITION="${DISK}p1"  # NVMe uses p1, p2...
+    
+    else
+        EFI_PARTITION="${DISK}1"   # Standard disks use 1, 2...
+    
+    fi
 
-# These inputs are collected before chrooting to avoid issues with here-documents.
+    echo "EFI partition created at: $EFI_PARTITION"
+}
 
-echo "Enter a hostname for this machine:"
-read hostname
+partitioning() {
+    local SWAP_CHOICE
 
-echo "Enter root password:"
-read rootpw
+    echo "Starting auto/recommended partitioning..."
 
-echo "Enter a username for your account:"
-read username
+    # Creating EFI Partition
+    echo "Creating EFI Partition..."
+    create_efi_partition
 
-echo "Enter password for your account:"
-read userpw
+    # Option to create swap partition
+    while true; do
+        read -rp "Do you want a swap partition? (y/n): " SWAP_CHOICE
+        SWAP_CHOICE=$(echo "$SWAP_CHOICE" | tr '[:upper:]' '[:lower:]')  # Convert to lowercase
 
-echo "Available Regions:"
-ls /usr/share/zoneinfo/
-echo "Enter your region (e.g., America, Europe, Asia):"
-read region
+        case "$SWAP_CHOICE" in
+            y)
+                echo "Creating swap partition..."
+                create_swap_file
+                break
+                ;;
+            n)
+                echo "Skipping swap partition..."
+                break
+                ;;
+            *)
+                echo "Invalid input. Please enter y or n."
+                sleep 3
+                ;;
+        esac
+    done
 
-# Validate region exists
-if [ ! -d "/usr/share/zoneinfo/$region" ]; then
-    echo "Region /usr/share/zoneinfo/$region does not exist. Exiting."
-    exit 1
-fi
+    # Creating Root Partition
+    while true; do
+        read -rp "Do you want a combined root and home partition? (y/n): " ROOT_CHOICE
+        ROOT_CHOICE=$(echo "$ROOT_CHOICE" | tr '[:upper:]' '[:lower:]')  # Convert to lowercase
 
-echo "Available Cities in $region:"
-ls /usr/share/zoneinfo/$region
-echo "Enter your city (e.g., New_York, London, Kolkata):"
-read city
+        case "$ROOT_CHOICE" in
+            y)
+                echo "Creating root and home combined partition..."
+                create_root_partition
+                break
+                ;;
+            n)
+                echo "Creating root partition..."
+                read -rp "Do you want a separate home partition? (y/n): " SEPARATE_HOME_PARTITION
+                create_root_partition
+                read -rp "Do you want a home partition? (y/n): " HOME_CHOICE
+                HOME_CHOICE=$(echo "$HOME_CHOICE" | tr '[:upper:]' '[:lower:]')  # Convert to lowercase
+                while true; do
+                    case "$HOME_CHOICE" in
+                        y)
+                            echo "Creating home partition..."
+                            create_home_partition
+                            break
+                            ;;
+                        n)
+                            echo "Skipping home partition..."
+                            break
+                            ;;
+                        *)
+                            echo "Invalid input. Please enter y or n."
+                            sleep 3
+                            ;;
+                    esac
+                done
+                break
+                ;;
+            *)
+                echo "Invalid input. Please enter y or n."
+                sleep 3
+                ;;
+        esac
+    done
+}
 
-echo "Available Locales (Press '/' to search, 'q' to exit):"
-cat /etc/locale.gen | grep -v '^#' | awk '{print $1}' | less
-echo "Enter your preferred locale (e.g., en_US.UTF-8, de_DE.UTF-8, fr_FR.UTF-8):"
-read lang_choice
+wipe_disk() {
+    echo "wiping $DISK..."
+    
+    # Create a new partition table (GPT format)
+    sudo parted --script "$DISK" mklabel gpt
 
-##########################################################
-# Step 6: Configure the System in arch-chroot           #
-##########################################################
+    echo "Disk wiped successfully"
+}
 
-echo "Chrooting into the new system..."
-arch-chroot /mnt /bin/bash <<EOT
-echo "Setting up system..."
+disk_selection() {
+    while true; do
+        # List available disks
+        echo "Available disks:"
+        lsblk -dp | grep -o '^/dev/sd[a-z]\|/dev/nvme[0-9]n[0-9]'
 
-echo "LANG=$lang_choice" > /etc/locale.conf
-echo "$lang_choice UTF-8" >> /etc/locale.gen
-locale-gen
+        # Ask user to select a disk
+        read -p "Enter the disk to partition (e.g., /dev/sdX or /dev/nvme0n1): " DISK
 
-ln -sf /usr/share/zoneinfo/$region/$city /etc/localtime
-hwclock --systohc
+        # Confirm selection
+        echo "Selected disk: $DISK"
+        read -rp "Are you sure? This will erase all data on $DISK! (y/n): " CONFIRM
+        CONFIRM=$(echo "$CONFIRM" | tr '[:upper:]' '[:lower:]')      # Convert to lowercase
 
-echo "$hostname" > /etc/hostname
+        case "$CONFIRM" in
+            y)
+                # Get disk size
+                DISK_SIZE=$(parted "$DISK" unit MiB print | awk '/Disk/ {print $3}' | sed 's/MiB//')
+                break
+            n)
+                echo "Aborted."
+                exit 1
+            *)
+                echo "Please select correct input yes or no."
+                sleep 3
+        esac
+    done
+}
 
-echo "Setting root password..."
-echo "root:$rootpw" | chpasswd
-
-useradd -m -G wheel -s /bin/bash "$username"
-echo "Setting password for $username..."
-echo "$username:$userpw" | chpasswd
-EOT
-
-##################################
-# Step 7: Bootloader Installation#
-##################################
-
-echo "Installing GRUB bootloader..."
-arch-chroot /mnt grub-install --target=x86_64-efi --efi-directory=/boot --bootloader-id=GRUB
-arch-chroot /mnt grub-mkconfig -o /boot/grub/grub.cfg
-
-###############################
-# Step 8: Enable Networking   #
-###############################
-
-echo "Enabling networking..."
-arch-chroot /mnt systemctl enable NetworkManager
-
-echo "Arch Linux installation complete! Reboot now."
+disk_selection
+wipe_disk
+partitioning
