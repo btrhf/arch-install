@@ -1,8 +1,8 @@
 #!/bin/bash
 
 
-# v0.0.5
-# ToDO : Make home partition 
+# v0.0.6
+# ToDO : File system formatting
 
 
 set -euo pipefail
