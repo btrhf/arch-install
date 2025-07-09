@@ -252,15 +252,12 @@ hwclock --systohc
 
 echo "$hostname" > /etc/hostname
 
-echo "Set the root password:"
-passwd
-$rootpw
-$rootpw
+echo "Setting root password..."
+echo "root:$rootpw" | chpasswd
 
 useradd -m -G wheel -s /bin/bash "$username"
-echo "Set the password for $username:"
-passwd "$username"
-$userpw
+echo "Setting password for $username..."
+echo "$username:$userpw" | chpasswd
 EOT
 
 ##################################
