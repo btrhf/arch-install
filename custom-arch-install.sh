@@ -12,13 +12,24 @@ if [[ $EUID -ne 0 ]]; then
     exit 1
 fi
 
+# Formating partitions witha filesystem 
+format_filesystems() {
+    echo "Formatting filesystems..."
+    mkfs.fat -F32 "$EFI_PARTITION"
+    mkfs.ext4 -F "$ROOT_PARTITION"
+
+    if [[ -n "${HOME_PARTITION:-}" ]]; then
+        mkfs.ext4 -F "$HOME_PARTITION"
+    fi
+}
+
 # Create HOME partition using parted
 create_home_partition() {
     HOME_SIZE="$(( $(parted "$DISK" unit MiB print free | awk '/Free Space/ {e=$2} END {gsub("MiB","",e); print e}') / 1024 ))G"
     echo "Creating Home Partition of size $HOME_SIZE"
     HOME_END="$(parted "$DISK" unit MiB print free | awk '/Free Space/ {e=$2} END {gsub("MiB","",e); print e"M"}')"
 
-    # Create HOMR partition using parted
+    # Create HOME partition using parted
     parted --script "$DISK" mkpart primary ext4 "$ROOT_END" "$HOME_END"
     parted --script "$DISK" name 3 "HOME"
 
@@ -193,7 +204,7 @@ create_efi_partition() {
 partitioning() {
     local SWAP_CHOICE
 
-    echo "Starting auto/recommended partitioning..."
+    echo "Starting partitioning..."
 
     # Creating EFI Partition
     create_efi_partition
@@ -206,6 +217,21 @@ partitioning() {
         case "$SWAP_CHOICE" in
             y)
                 echo "Creating swap partition..."
+                while true; do
+                    read -rp "Is hibernation required? (y/n, default: n): " HIBERNATION_REQUIRED
+                    HIBERNATION_REQUIRED=$HIBERNATION_REQUIRED
+
+                    case "$HIBERNATION_REQUIRED" in
+                        y|n)
+                            break
+                            ;;
+                        *)
+                            echo "Invalid input. Please enter y or n."
+                            sleep 3
+                            continue
+                            ;;
+                    esac
+                done
                 create_swap_file
                 break
                 ;;
@@ -216,6 +242,7 @@ partitioning() {
             *)
                 echo "Invalid input. Please enter y or n."
                 sleep 3
+                continue
                 ;;
         esac
     done
@@ -234,8 +261,8 @@ partitioning() {
             n)
                 echo "Creating root partition..."
                 read -rp "Do you want a home partition? (y/n): " SEPARATE_HOME_PARTITION
-                create_root_partition
                 SEPARATE_HOME_PARTITION=$(echo "$SEPARATE_HOME_PARTITION" | tr '[:upper:]' '[:lower:]')  # Convert to lowercase
+                create_root_partition
                 while true; do
                     case "$SEPARATE_HOME_PARTITION" in
                         y)
@@ -250,6 +277,7 @@ partitioning() {
                         *)
                             echo "Invalid input. Please enter y or n."
                             sleep 3
+                            continue
                             ;;
                     esac
                 done
@@ -258,6 +286,7 @@ partitioning() {
             *)
                 echo "Invalid input. Please enter y or n."
                 sleep 3
+                continue
                 ;;
         esac
     done
@@ -290,6 +319,8 @@ disk_selection() {
             y)
                 # Get disk size
                 DISK_SIZE=$(parted "$DISK" unit MiB print | awk '/Disk/ {print $3}' | sed 's/MiB//')
+                echo "Using Disk: $DISK"
+                echo "Disk Size: $DISK_SIZE"
                 break
                 ;;
             n)
@@ -299,6 +330,7 @@ disk_selection() {
             *)
                 echo "Please select correct input yes or no."
                 sleep 3
+                continue
                 ;;
         esac
     done
