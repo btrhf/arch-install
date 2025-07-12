@@ -235,7 +235,7 @@ create_efi_partition() {
 
 partitioning() {
     local SWAP_CHOICE ROOT_CHOICE
-    SEPARATE_HOME_PARTITION = "n"
+    SEPARATE_HOME_PARTITION="n"
 
     echo "Starting partitioning..."
 
