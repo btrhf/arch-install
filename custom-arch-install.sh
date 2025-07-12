@@ -70,7 +70,7 @@ create_home_partition() {
 
     # Create HOME partition using parted
     parted --script "$DISK" mkpart primary ext4 "$ROOT_END" "$HOME_END"
-    parted --script "$DISK" --name 3 "HOME"
+    parted --script "$DISK" name 3 "HOME"
 
     # Determine partition name
     if [[ $DISK =~ nvme ]]; then
@@ -218,7 +218,7 @@ create_efi_partition() {
     # Create EFI partition using parted
     parted --script "$DISK" mkpart ESP fat32 1MiB "$EFI_END"
     parted --script "$DISK" set 1 esp on
-    parted --script "$DISK" --name 1 "EFI"
+    parted --script "$DISK" name 1 "EFI"
 
     # Determine partition name
     if [[ $DISK =~ nvme ]]; then
