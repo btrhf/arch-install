@@ -1,15 +1,17 @@
 #!/bin/bash
 
-# v0.0.7
-# TODO: add systemd, GPU-Drives, etc
-
 set -euo pipefail
 
+# Root Check
 if [[ $EUID -ne 0 ]]; then
     echo "Please run as root"
     exit 1
 
 fi
+
+# v0.07
+# TODO: fix errors in 0.07 (Priority)
+# TODO: add systemd, GPU-Drives, etc
 
 # Installing base system with fstab auto config
 install_base_system() {
@@ -45,6 +47,18 @@ format_filesystems_and_mount() {
         mount "$HOME_PARTITION" /mnt/home
 
     fi
+
+    if [[ -n "${SWAP_SIZE:-}" ]]; then
+        echo "Creating SWAP partition..."
+
+        echo "Creating swap partition of ${SWAP_SIZE%G} GB"
+
+        fallocate -l "$SWAP_SIZE" /mnt/swapfile
+        chmod 600 /mnt/swapfile
+        mkswap /mnt/swapfile
+        swapon /mnt/swapfile
+    
+    fi
 }
 
 # Create HOME partition using parted
@@ -56,7 +70,7 @@ create_home_partition() {
 
     # Create HOME partition using parted
     parted --script "$DISK" mkpart primary ext4 "$ROOT_END" "$HOME_END"
-    parted --script "$DISK" name 3 "HOME"
+    parted --script "$DISK" --name 3 "HOME"
 
     # Determine partition name
     if [[ $DISK =~ nvme ]]; then
@@ -128,8 +142,7 @@ create_root_partition() {
 
 }
 
-create_swap_file() {
-    echo "Creating SWAP partition..."
+set_swap_file() {
     while true; do
         RAM_SIZE=$(awk '/MemTotal/ {printf "%.0f", ($2 / 1024 / 1024) + 1}' /proc/meminfo)
 
@@ -166,12 +179,6 @@ create_swap_file() {
         fi
     done
 
-    echo "Creating swap partition of ${SWAP_SIZE%G} GB"
-
-    fallocate -l "$SWAP_SIZE" /mnt/swapfile
-    chmod 600 /mnt/swapfile
-    mkswap /mnt/swapfile
-
 }
 
 # Create EFI partition using parted
@@ -201,6 +208,7 @@ create_efi_partition() {
             fi
         else
             EFI_END="$(( ${EFI_SIZE%G} * 1024 ))M"              # Convert GB to MB
+            break
 
         fi
     done
@@ -210,7 +218,7 @@ create_efi_partition() {
     # Create EFI partition using parted
     parted --script "$DISK" mkpart ESP fat32 1MiB "$EFI_END"
     parted --script "$DISK" set 1 esp on
-    parted --script "$DISK" name 1 "EFI"
+    parted --script "$DISK" --name 1 "EFI"
 
     # Determine partition name
     if [[ $DISK =~ nvme ]]; then
@@ -227,6 +235,7 @@ create_efi_partition() {
 
 partitioning() {
     local SWAP_CHOICE ROOT_CHOICE
+    SEPARATE_HOME_PARTITION = "n"
 
     echo "Starting partitioning..."
 
@@ -257,7 +266,7 @@ partitioning() {
 
                     esac
                 done
-                create_swap_file
+                set_swap_file
                 break
                 ;;
 
@@ -302,6 +311,7 @@ partitioning() {
                             ;;
 
                         n)
+                            echo "Do you want to select a home partition from pervious Install? (y/n): " 
                             echo "Skipping home partition..."
                             break
                             ;;
