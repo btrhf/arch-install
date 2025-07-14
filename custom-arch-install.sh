@@ -3,11 +3,16 @@
 set -euo pipefail
 
 # Root Check
-if [[ $EUID -ne 0 ]]; then
+if [[ "$EUID" -ne 0 ]]; then
     echo "Please run as root"
     exit 1
 
 fi
+
+# Load all function scripts
+for file in ./functions/*.sh; do
+    source "$file"
+done
 
 # v0.07
 # TODO: fix errors in 0.07 (Priority)
@@ -21,44 +26,53 @@ install_base_system() {
     echo "Generating fstab..."
     genfstab -U /mnt >> /mnt/etc/fstab
 
-    if [[ -f /mnt/swapfile ]]; then
-        echo "/swapfile none swap defaults 0 0" >> /mnt/etc/fstab
-    fi
-
     echo "Installation complete. You can now chroot using:"
     echo "arch-chroot /mnt"
 
 }
 
-# Formatting partitions with a filesystem
-format_filesystems_and_mount() {
-    echo "Formatting filesystems..."
+# Creates a swap file and activates it
+create_mount_swap() {
+    echo "Creating SWAP partition..."
 
-    mkfs.ext4 -F -L ROOT "$ROOT_PARTITION"
+    echo "Creating swap partition of ${SWAP_SIZE%G} GB"
+
+    fallocate -l "$SWAP_SIZE" /mnt/swapfile
+    chmod 600 /mnt/swapfile
+    mkswap /mnt/swapfile
+    swapon /mnt/swapfile
+
+}
+
+# Mount patitions to respective locations
+mount_partitions() {
+    echo "Mounting filesystems..."
     mount "$ROOT_PARTITION" /mnt
-
-    mkfs.fat -F32 -n EFI "$EFI_PARTITION"
     mkdir /mnt/boot
     mount "$EFI_PARTITION" /mnt/boot
 
     if [[ -n "${HOME_PARTITION:-}" ]]; then
-        mkfs.ext4 -F -L HOME "$HOME_PARTITION"
         mkdir /mnt/home
         mount "$HOME_PARTITION" /mnt/home
 
     fi
 
-    if [[ -n "${SWAP_SIZE:-}" ]]; then
-        echo "Creating SWAP partition..."
+}
 
-        echo "Creating swap partition of ${SWAP_SIZE%G} GB"
+# Formatting partitions with a filesystem
+format_partitions() {
+    echo "Formatting filesystems..."
 
-        fallocate -l "$SWAP_SIZE" /mnt/swapfile
-        chmod 600 /mnt/swapfile
-        mkswap /mnt/swapfile
-        swapon /mnt/swapfile
+    mkfs.ext4 -F -L ROOT "$ROOT_PARTITION"
+
+    mkfs.fat -F32 -n EFI "$EFI_PARTITION"
     
+
+    if [[ -n "${HOME_PARTITION:-}" ]]; then
+        mkfs.ext4 -F -L HOME "$HOME_PARTITION"
+
     fi
+
 }
 
 # Create HOME partition using parted
@@ -73,7 +87,7 @@ create_home_partition() {
     parted --script "$DISK" name 3 "HOME"
 
     # Determine partition name
-    if [[ $DISK =~ nvme ]]; then
+    if [[ "$DISK" =~ nvme ]]; then
         HOME_PARTITION="${DISK}p3"  # NVMe uses p1, p2...
 
     else
@@ -130,7 +144,7 @@ create_root_partition() {
     parted --script "$DISK" name 2 "ROOT"
 
     # Determine partition name
-    if [[ $DISK =~ nvme ]]; then
+    if [[ "$DISK" =~ nvme ]]; then
         ROOT_PARTITION="${DISK}p2"  # NVMe uses p1, p2...
 
     else
@@ -221,7 +235,7 @@ create_efi_partition() {
     parted --script "$DISK" name 1 "EFI"
 
     # Determine partition name
-    if [[ $DISK =~ nvme ]]; then
+    if [[ "$DISK" =~ nvme ]]; then
         EFI_PARTITION="${DISK}p1"  # NVMe uses p1, p2...
 
     else
@@ -311,7 +325,8 @@ partitioning() {
                             ;;
 
                         n)
-                            echo "Do you want to select a home partition from pervious Install? (y/n): " 
+                            # TODO: Implement logic to select previous /home partition manually
+                            # read -rp "Do you want to select a home partition from previous Install? (y/n): " HOME_PARTITION
                             echo "Skipping home partition..."
                             break
                             ;;
@@ -342,56 +357,13 @@ partitioning() {
 
 }
 
-wipe_disk() {
-    echo "wiping $DISK..."
-
-    # Create a new partition table (GPT format)
-    parted --script "$DISK" mklabel gpt
-
-    echo "Disk wiped successfully"
-
-}
-
-disk_selection() {
-    while true; do
-        # List available disks
-        echo "Available disks:"
-        lsblk -dpno NAME,SIZE,MODEL
-
-        # Ask user to select a disk
-        read -p "Enter the disk to partition (e.g., /dev/sdX or /dev/nvme0n1): " DISK
-
-        # Confirm selection
-        echo "Selected disk: $DISK"
-        read -rp "Are you sure? This will erase all data on $DISK! (y/n): " CONFIRM
-        CONFIRM=$(echo "$CONFIRM" | tr '[:upper:]' '[:lower:]')      # Convert to lowercase
-
-        case "$CONFIRM" in
-            y)
-                # Get disk size
-                DISK_SIZE=$(parted "$DISK" unit MiB print | awk '/Disk/ {print $3}' | sed 's/MiB//')
-                echo "Using Disk: $DISK"
-                echo "Disk Size: $DISK_SIZE"
-                break
-                ;;
-
-            n)
-                echo "Aborted."
-                exit 1
-                ;;
-
-            *)
-                echo "Please select correct input yes or no."
-                sleep 3
-                continue
-                ;;
-
-        esac
-    done
-}
 
 disk_selection
 wipe_disk
 partitioning
-format_filesystems_and_mount
+format_partitions
+mount_partitions
+if [[ -n "${SWAP_SIZE:-}" ]]; then
+    create_mount_swap
+fi
 install_base_system
